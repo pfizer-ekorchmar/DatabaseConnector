@@ -161,7 +161,7 @@ createConnectionDetails <- function(dbms,
     extraSettings = extraSettings,
     oracleDriver = oracleDriver,
     pathToDriver = pathToDriver,
-    executeOnConnect = executeOnConnect,
+    executeOnConnect = executeOnConnect
   )
 
   userExpression <- rlang::enquo(user)
