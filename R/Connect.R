@@ -100,6 +100,10 @@ assertDetailsCanBeValidated <- function(connectionDetails) {
 #' - `createConnectionDetails(dbms, connectionString, pathToDriver)`
 #' - `createConnectionDetails(dbms, connectionString, user, password, pathToDriver)`
 #'
+#' Optionally, `executeOnConnect` parameter may be provided to
+#' provide a verbatim SQL query to be executed once connection
+#' is established.
+#'
 #' @usage
 #' NULL
 #'
@@ -146,7 +150,8 @@ createConnectionDetails <- function(dbms,
                                     extraSettings = NULL,
                                     oracleDriver = "thin",
                                     connectionString = NULL,
-                                    pathToDriver = Sys.getenv("DATABASECONNECTOR_JAR_FOLDER")) {
+                                    pathToDriver = Sys.getenv("DATABASECONNECTOR_JAR_FOLDER"),
+                                    executeOnConnect = NULL) {
   checkIfDbmsIsSupported(dbms)
   pathToDriver <- path.expand(pathToDriver)
   checkPathToDriver(pathToDriver, dbms)
@@ -155,7 +160,8 @@ createConnectionDetails <- function(dbms,
     dbms = dbms,
     extraSettings = extraSettings,
     oracleDriver = oracleDriver,
-    pathToDriver = pathToDriver
+    pathToDriver = pathToDriver,
+    executeOnConnect = executeOnConnect,
   )
 
   userExpression <- rlang::enquo(user)
@@ -273,8 +279,10 @@ connect <- function(connectionDetails = NULL,
                     extraSettings = NULL,
                     oracleDriver = "thin",
                     connectionString = NULL,
-                    pathToDriver = Sys.getenv("DATABASECONNECTOR_JAR_FOLDER")) {
+                    pathToDriver = Sys.getenv("DATABASECONNECTOR_JAR_FOLDER"),
+                    executeOnConnect = NULL) {
   if (missing(connectionDetails) || is.null(connectionDetails)) {
+    # Construct connectionDetails and call self again
     # warn("Use of dbms, server, etc. when calling connect() is deprecated. Use connectionDetails instead.")
     connectionDetails <- createConnectionDetails(
       dbms = dbms,
@@ -285,26 +293,34 @@ connect <- function(connectionDetails = NULL,
       extraSettings = extraSettings,
       oracleDriver = oracleDriver,
       connectionString = connectionString,
-      pathToDriver = pathToDriver
+      pathToDriver = pathToDriver,
+      executeOnConnect = executeOnConnect
     )
     return(connect(connectionDetails))
   } else if (is(connectionDetails, "DbiConnectionDetails")) {
-    return(connectUsingDbi(connectionDetails))
+    conn = (connectUsingDbi(connectionDetails))
   } else {
     # Using default connectionDetails
     assertDetailsCanBeValidated(connectionDetails)
     checkIfDbmsIsSupported(connectionDetails$dbms)
     
     if (connectionDetails$dbms %in% c("sqlite", "sqlite extended")) {
-      connectSqlite(connectionDetails)
+      conn = connectSqlite(connectionDetails)
     } else if (connectionDetails$dbms == "duckdb") {
-      connectDuckdb(connectionDetails)
+      conn = connectDuckdb(connectionDetails)
     } else if (connectionDetails$dbms == "spark" && is.null(connectionDetails$connectionString())) {
-      connectSparkUsingOdbc(connectionDetails)
+      conn = connectSparkUsingOdbc(connectionDetails)
     } else {
-      return(connectUsingJdbc(connectionDetails))
+      conn = (connectUsingJdbc(connectionDetails))
     }
   }
+
+  # If there is a query to execute on creation, do it now 
+  if (!is.null(connectionDetails$executeOnConnect)) {
+    dbGetQuery(conn, connectionDetails$executeOnConnect)
+  }
+  
+  return(conn)
 }
 
 connectUsingJdbc <- function(connectionDetails) {
